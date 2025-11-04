@@ -862,4 +862,4 @@ c2同样也使用了rc4加密，使用python进行解密
 
 [SmokeLoader加载器的全面分析——典型加载器家族系列分析三](https://www.antiy.cn/research/notice&report/research_report/SmokeLoader_Analysis_202504.html)
 
-**转载请注明出处及链接**
+**未经同意，禁止转载**
