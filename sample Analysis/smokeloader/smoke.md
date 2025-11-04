@@ -1,18 +1,4 @@
-+++
-
-date = '2025-09-02T10:28:32+08:00'
-
-draft = false
-
-title = '深入分析 SmokeLoader'
-
-tags = ['malware','loader']
-
-categories = ['Analyze']
-
-+++
-
-
+# 深入分析 SmokeLoader
 
 SmokeLoader一款恶意软件加载器，同时也可作为僵尸网络。在本文中，我们将了解 Smoke Loader 如何解压自身并与 C2 服务器交互。smokeloader有很多版本，当前分析的版本是2020的。
 
