@@ -1,0 +1,244 @@
+# 浅析 Rhadamanthys
+
+**免责声明：本博客文章仅用于教育和研究目的。由于传播或利用此文所提供的信息、技术或方法而造成的任何直接或间接的后果及损失，均由使用者本人负责， 文章作者不为此承担任何责任。**
+
+
+Rhadamanthys采用多模块的方式加载运行，自定义PE结构，需手动修复，然后使用天堂之门注入到进程中运行。经过反调试，反虚拟机检测后，连接服务器下载最终的窃密模块文件，收集浏览器(Chrome)，steam等软件数据发送给服务器。本次分析的是早期的Rhadamanthys。
+
+该样本内置了一份多模块文件数据表，可通过文件名来确定文件在内存中的位置和大小，该表中有unhook.bin(hook EtwEventWrite等函数)，prepare.bin(傀儡进程注入)，phexec.bin(天堂之门运行新的进程)模块
+
+样本流程图：
+
+![9181e6f770cad2c71284c4e699d74852d42483966bc48ed5a07c4090015bf3db](Rhadamanthys/9181e6f770cad2c71284c4e699d74852d42483966bc48ed5a07c4090015bf3db.png)
+
+
+
+## 解压注入
+
+使用和smekeloader类似的运行方式，使用Process Hollowing注入进程
+
+![1f5f3db6f866f5afc5dd7ebf7d119c99dc474037b860e8e645124c14f0c9ec13](Rhadamanthys/1f5f3db6f866f5afc5dd7ebf7d119c99dc474037b860e8e645124c14f0c9ec13.png)
+
+解密内容，清空当前进程中映射内存，然后手动映射解密后的文件到内存中
+
+![a8ab0c24ab2b1738e36110e25779af169c556150fa1c27fc255e8a7d67258685](Rhadamanthys/a8ab0c24ab2b1738e36110e25779af169c556150fa1c27fc255e8a7d67258685.png)
+
+映射节表
+
+![0440246ee6dd4bb7b01e308a757d114f84db4c1a99cb4e1fd7ca7fea4ea4516d](Rhadamanthys/0440246ee6dd4bb7b01e308a757d114f84db4c1a99cb4e1fd7ca7fea4ea4516d.png)
+
+**jmp eax**进入下一阶段
+
+![efbd4d5a6a3ccacc5ea08bce173c999a0a8796a563279fc73ba45b0b5c83e9cd](Rhadamanthys/efbd4d5a6a3ccacc5ea08bce173c999a0a8796a563279fc73ba45b0b5c83e9cd.png)
+
+## 第一阶段 加载
+
+主要使用字节码虚拟机解密下一阶段的shellcode, 该shellcode手动加载模块文件
+
+使用vm虚拟机解密下一阶段的shellcode
+
+![8a091c6634ba385a24ff0c07ed3b7a1ff3044a50836f17510ae09d9015620872](Rhadamanthys/8a091c6634ba385a24ff0c07ed3b7a1ff3044a50836f17510ae09d9015620872.png)
+
+释放虚拟机申请的堆内存，进入解密后的shellcode
+
+![9a43884e83de35c6cdaa1812ad9c77146f92f0ca4f76b571865c2b4ecb4a9eac](Rhadamanthys/9a43884e83de35c6cdaa1812ad9c77146f92f0ca4f76b571865c2b4ecb4a9eac.png)
+
+### 修复PE结构和IAT
+
+自定义的文件结构，可通过[hide_bee_tools](https://github.com/hasherezade/hidden_bee_tools)进行修复还原出原本的PE结构
+
+![8b327efaa06407b4156ff9bb87f3eb1ab59c34f2fff6228654c168bca863b29f](Rhadamanthys/8b327efaa06407b4156ff9bb87f3eb1ab59c34f2fff6228654c168bca863b29f.png)
+
+复制节表到内存中
+
+![395c043eb2247d003b99b28d3200bf1ddfad76d24e094104c507320baeeb5540](Rhadamanthys/395c043eb2247d003b99b28d3200bf1ddfad76d24e094104c507320baeeb5540.png)
+
+解压出自定义结构的PE文件, 在内存中拉伸节表，然后调用入口点
+
+![63bf372ed4724a23d6c6226b9029d95cd8f16e6bbd49a540c1c0c4c7a1f6c96a](Rhadamanthys/63bf372ed4724a23d6c6226b9029d95cd8f16e6bbd49a540c1c0c4c7a1f6c96a.png)
+
+核心函数入口，修复重定位，修复IAT等操作
+
+![ca42318e5bc4940891bbbd0dd1c013f6d1f7082698a646b53daf25c4e84588c7](Rhadamanthys/ca42318e5bc4940891bbbd0dd1c013f6d1f7082698a646b53daf25c4e84588c7.png)
+
+### 异常支持
+
+对ZwQueryInformationProcess进行hook，对于手动映射加载的pe文件进行异常处理支持，后续通过触发异常调用运行shellcode
+
+![300fee8d32ef54c101c01e4b23084d5183c9b08dd4d0507ec6426d9716281d77](Rhadamanthys/300fee8d32ef54c101c01e4b23084d5183c9b08dd4d0507ec6426d9716281d77.png)
+
+
+
+![03a0660144c0d4e82cf03ab0a76304c63aa07b86033888113030d48cbd9e6815](Rhadamanthys/03a0660144c0d4e82cf03ab0a76304c63aa07b86033888113030d48cbd9e6815.png)
+
+### url解密
+
+后续使用rc4解密url
+
+![f204bb9a46509680968a348bf668a2ce8204b8e17b5790df683b681bb80b1a06](Rhadamanthys/f204bb9a46509680968a348bf668a2ce8204b8e17b5790df683b681bb80b1a06.png)
+
+解密url后
+
+![71060556d8c8faa13b288a46836aaa06d6f7596b92f3ea4bf6a5778bd79bba0f](Rhadamanthys/71060556d8c8faa13b288a46836aaa06d6f7596b92f3ea4bf6a5778bd79bba0f.png)
+
+创建特定形式的互斥量
+
+![5143abda8a1a384d87aad49964f66d0504c8a48cf28704a285f096e3006bc4db](Rhadamanthys/5143abda8a1a384d87aad49964f66d0504c8a48cf28704a285f096e3006bc4db.png)
+
+## 第二阶段 反调试
+
+**进行unhook操作**
+
+**反调试，反虚拟机**
+
+**网络连接主机下载文件**
+
+若在x64进程中，从内存中找到unhook.bin并映射文件执行，该bin对已hook的api进行unhook，使用Heavens's Gate进行unhook.bin程序的执行。
+
+![210f7b34a69febee3a5130a0cacc6158b3bde9b70f3732c70e473702385b4e15](Rhadamanthys/210f7b34a69febee3a5130a0cacc6158b3bde9b70f3732c70e473702385b4e15.png)
+
+Heavens's Gate实现，x64调用
+
+![24e00a1d1406cc02eff8747de51670b2dec1c0f91c7fa065ff726dc696e036a0](Rhadamanthys/24e00a1d1406cc02eff8747de51670b2dec1c0f91c7fa065ff726dc696e036a0.png)
+
+进入x64架构，调用unhook.bin
+
+![8c2ccbd0cf435ea115e69e4439613c1ed2d773c281fa124f134384457713f8cf](Rhadamanthys/8c2ccbd0cf435ea115e69e4439613c1ed2d773c281fa124f134384457713f8cf.png)
+
+对系统ntdll中的api进行unhook操作
+
+![8cd9e8541f9d980632f117ba9963dc6b8105fea3fe5ccd7a4ec1f3dde2a84a6e](Rhadamanthys/8cd9e8541f9d980632f117ba9963dc6b8105fea3fe5ccd7a4ec1f3dde2a84a6e.png)
+
+### 反调试和反虚拟机
+
+创建线程进行反调试和反虚拟机操作
+
+![975f7a87c7abab035fde3e1073a9a2b1a9c5a1803b92df6fecdcb34dcb7ad140](Rhadamanthys/975f7a87c7abab035fde3e1073a9a2b1a9c5a1803b92df6fecdcb34dcb7ad140.png)
+
+部分反调试
+
+![f8350bd21af1a3e3d722fdeef07e656b79031e9c8dcddf0a4e67a7531e3ce2b8](Rhadamanthys/f8350bd21af1a3e3d722fdeef07e656b79031e9c8dcddf0a4e67a7531e3ce2b8.png)
+
+
+
+部分反虚拟机操作
+
+![01502e6e1f65bfd69341f4c095462ba048e5cec8cb6fd3c1b62c7f16067b8922](Rhadamanthys/01502e6e1f65bfd69341f4c095462ba048e5cec8cb6fd3c1b62c7f16067b8922.png)
+
+### 反杀毒软件检测
+
+![a780e09d265aaca895c616f1564e4d20b74af2530f1ca01ee95c44a4e59c3b8e](Rhadamanthys/a780e09d265aaca895c616f1564e4d20b74af2530f1ca01ee95c44a4e59c3b8e.png)
+
+### 构造url连接服务器
+
+在通过反调试操作后，使用回调函数进行网络连接c2，下载下一阶段的有效载荷
+
+构造http头，设置ECC密钥与服务器进行连接，该密钥参与后续下载的有效载荷解密操作
+
+![9821f6f9a231aaa7a3d97ea5797e20965de98db85539ca4a6dd56c273cbea37e](Rhadamanthys/9821f6f9a231aaa7a3d97ea5797e20965de98db85539ca4a6dd56c273cbea37e.png)
+
+连接服务器下载图片，解密隐藏在图片中的payload第一层内容，以**!Rex**开头的结构， 第二层解密在shellcode进行解密
+
+![6eaf6dd4569df9e7be1efe10be072caca46c51999b0e21dcb4599148968df662](Rhadamanthys/6eaf6dd4569df9e7be1efe10be072caca46c51999b0e21dcb4599148968df662.png)
+
+
+
+### 傀儡进程运行
+
+解密下载的文件后，再次进行判断是否在x64进程中，x32则进行下一阶段的shellcode运行解密出最终的payload
+
+![32885370399906f3762753574c9a810c486515c946c391d8923cd429afeb83a3](Rhadamanthys/32885370399906f3762753574c9a810c486515c946c391d8923cd429afeb83a3.png)
+
+x64位则重新创建注入到explorer进程中运行，使用天堂之门调用phexec.bin将prepare.bin注入文件到挂起的进程中，在进程中使用解密出最终的窃密文件，进行调用
+
+![88617ee8325f11ab2a2d4c1643cc85594557e92901c87bd1ce708cbd49845d83](Rhadamanthys/88617ee8325f11ab2a2d4c1643cc85594557e92901c87bd1ce708cbd49845d83.png)
+
+解密出最终窃密文件内容，以‘HSd’开头的文件，修复文件结构，进入第三阶段
+
+![427a8b426d2e4d683fa931458a845fc2a668e36a5ed90220e0aa1daa90c80d80](Rhadamanthys/427a8b426d2e4d683fa931458a845fc2a668e36a5ed90220e0aa1daa90c80d80.png)
+
+## 第三阶段 信息获取
+
+**patch EtwEventWrite和NtTraceEvent地址**
+
+**相关组建的释放**
+
+**文件的窃取**
+
+对EtwEventWrite和NtTraceEvent设置为空，使函数无法正常执行
+
+![0adad19357c7f07f2db0494513c4cee3280e273ddc85cf167130e8b9ab94d34b](Rhadamanthys/0adad19357c7f07f2db0494513c4cee3280e273ddc85cf167130e8b9ab94d34b.png)
+
+获取其他相关Api
+
+![f8ccec95196ae87e61b3d1e706f15856ce542fbe79ee46def3b79ef27fe62927](Rhadamanthys/f8ccec95196ae87e61b3d1e706f15856ce542fbe79ee46def3b79ef27fe62927.png)
+
+进行相关组件的释放，根据文件名在内存中获取数据偏移，然后进行相应的映像复制展开执行
+
+![9026e3344a8aa2932ac3ca5e05ca1ac58fcaa4a39c16080cb50f4bd09761fa7d](Rhadamanthys/9026e3344a8aa2932ac3ca5e05ca1ac58fcaa4a39c16080cb50f4bd09761fa7d.png)
+
+创建管道，对于部分数据和命令的运行使用管道进行传输
+
+管道名的格式化
+
+![57edbf2abe6d9da345584e1982023b2adaed7ec9da3877a317c16691696fe0ea](Rhadamanthys/57edbf2abe6d9da345584e1982023b2adaed7ec9da3877a317c16691696fe0ea.png)
+
+创建管道
+
+![55691a8f1907c95661172f3a039781ae58dea8b1e5983e720f0ac312de2fac6d](Rhadamanthys/55691a8f1907c95661172f3a039781ae58dea8b1e5983e720f0ac312de2fac6d.png)
+
+### 窃取文件
+
+获取进程信息，初始化steal函数
+
+![f205c3dfc75ea7471d4edc27ca265e92f28503bf2a2de144d4666586155184ab](Rhadamanthys/f205c3dfc75ea7471d4edc27ca265e92f28503bf2a2de144d4666586155184ab.png)
+
+主要的窃取函数
+
+![a2cbb3f348ba9e91a6dedcb1aef2749e15f1ed499b5b511c5440d44f5589cfc4](Rhadamanthys/a2cbb3f348ba9e91a6dedcb1aef2749e15f1ed499b5b511c5440d44f5589cfc4.png)
+
+可以窃取Chrome, Firefox, Steam, discard等软件中重要的信息
+
+获取chrome数据
+
+![39ef60c8ab431db3a859fa1a3c24ede4a9f2f3af1108d871c290a574c145d923](Rhadamanthys/39ef60c8ab431db3a859fa1a3c24ede4a9f2f3af1108d871c290a574c145d923.png)
+
+获取steam数据
+
+![f5cb7f39828521ca7b92c9eb705978933b91e76eb5d470e897e624b90a3dfd8a](Rhadamanthys/f5cb7f39828521ca7b92c9eb705978933b91e76eb5d470e897e624b90a3dfd8a.png)
+
+使用lua文件获取钱包信息
+
+![acdd9f2a430e10013fcff72166ef45052fb9995213a2fe2ebfe272777d92575d](Rhadamanthys/acdd9f2a430e10013fcff72166ef45052fb9995213a2fe2ebfe272777d92575d.png)
+
+lua脚本运行
+
+![c52aab2055a2232370d37782cddd314013cc3503306cf6baec2f9cb0ee5b57b2](Rhadamanthys/c52aab2055a2232370d37782cddd314013cc3503306cf6baec2f9cb0ee5b57b2.png)
+
+### C#获取信息
+
+调用stubmod.bin注入KeePassHax.dll，stubmod.bin中创建.net运行环境 
+
+![43bd1faaa665d215ccd872516325fe06ffcf75102fc4e948ac863355f5ba3568](Rhadamanthys/43bd1faaa665d215ccd872516325fe06ffcf75102fc4e948ac863355f5ba3568.png)
+
+注入KeePassHax.dll到KeePass进程获取重要信息
+
+![96623b0623cc37bdc90c2cbe37ca9c4931d87086b6b731c05a0534603f37a66b](Rhadamanthys/96623b0623cc37bdc90c2cbe37ca9c4931d87086b6b731c05a0534603f37a66b.png)
+
+KeePass中dump数据
+
+![927475028f5b8a29573237bdbf135104528bb49b9b8ec202e9ffe670921bf7b7](Rhadamanthys/927475028f5b8a29573237bdbf135104528bb49b9b8ec202e9ffe670921bf7b7.png)
+
+## IOC
+
+![0fbc1f442e8cafb2b3d1d8ec52c78b48530bea091882ab73e25deaf81bcdc40b](Rhadamanthys/0fbc1f442e8cafb2b3d1d8ec52c78b48530bea091882ab73e25deaf81bcdc40b.png)
+
+
+
+参考
+
+[信息盗取的隐性威胁：Rhadamanthys木马无痕窃密-技术文章-火绒安全](https://www.huorong.cn/document/tech/vir_report/1819)
+
+https://research.checkpoint.com/2023/rhadamanthys-v0-5-0-a-deep-dive-into-the-stealers-components/
+
+**未经同意，禁止转载**
